@@ -19,14 +19,15 @@ namespace DejaVu
 		int samplerate;
 		float inGain;
 		float outGain;
+		uint16_t parameters[Parameter::COUNT];
+		int loopLength;
+		int mode; // playback or record
+
+	public:
 		bool isRecordingBaseLoop;
 		bool isRecordingOverdub;
 		bool isPlaybackEnabled;
-		int loopLength;
-
-		uint16_t parameters[Parameter::COUNT];
-
-	public:
+		
 		ControllerDejaVu(int samplerate)
 		{
 			this->samplerate = samplerate;
@@ -66,17 +67,18 @@ namespace DejaVu
 				loopLength = Delay.getPtr();
 				isPlaybackEnabled = false;
 			}
-			
-			if (isRecordingOverdub)
+			else if (isRecordingOverdub)
 			{
 				isRecordingOverdub = false;
 				isPlaybackEnabled = false;
 			}
-
-			if (isPlaybackEnabled)
-				isPlaybackEnabled = false;
 			else
-				isPlaybackEnabled = true;
+			{
+				if (isPlaybackEnabled)
+					isPlaybackEnabled = false;
+				else
+					isPlaybackEnabled = true;
+			}
 			
 			Delay.setPtr(0);
 		}
@@ -115,6 +117,7 @@ namespace DejaVu
 			{
 				case Parameter::InGain:		return (int)(P(param) * 40) / 2.0; // 0.5db increments
 				case Parameter::OutGain:	return -20 + P(param) * 40;
+				case Parameter::Mode:		return P(param, 4) > 0.5 ? 1 : 0;
 			}
 			return parameters[param];
 		}
@@ -128,6 +131,8 @@ namespace DejaVu
 				inGain = DB2gain(scaled);
 			else if (param == Parameter::OutGain)
 				outGain = DB2gain(scaled);
+			else if (param == Parameter::Mode)
+				mode = scaled;
 		}
 
 		void Process(float** inputs, float** outputs, int bufferSize)

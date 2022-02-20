@@ -28,12 +28,13 @@ namespace DejaVu
         {
             ParameterNames[Parameter::InGain] = "In Gain";
             ParameterNames[Parameter::OutGain] = "Out Gain";
+            ParameterNames[Parameter::Mode] = "Mode";
         }
 
         inline void SetIOConfig()
         {
-            //int gainIn = (int8_t)(controller.GetScaledParameter(Parameter::InGain) * 2.0 + 0.0001);        
-            //Polygons::codec.analogInGain(gainIn, gainIn);
+            int gainIn = (int8_t)(controller.GetScaledParameter(Parameter::InGain) * 2.0 + 0.0001);        
+            Polygons::codec.analogInGain(gainIn, gainIn);
         }
 
         // --------------------- EffectBase implementation ---------------------
@@ -42,6 +43,7 @@ namespace DejaVu
         {
             os.Register(Parameter::InGain,  1023, Polygons::ControlMode::Encoded, 0, 4);
             os.Register(Parameter::OutGain, 1023, Polygons::ControlMode::Encoded, 1, 2);
+            os.Register(Parameter::Mode,    4, Polygons::ControlMode::Encoded, 7, 1);
         }
 
         virtual void GetPageName(int page, char* dest) override
@@ -64,16 +66,17 @@ namespace DejaVu
 
         virtual void GetParameterDisplay(int paramId, char* dest) override
         {
-            if (paramId != 0 && paramId != 1)
-            {
-                Serial.print("Requesting param ");
-                Serial.println(paramId);
-            }
-
-            double val = 0.0;//controller.GetScaledParameter(paramId);
+            double val = controller.GetScaledParameter(paramId);
             if (paramId == Parameter::InGain || paramId == Parameter::OutGain)
             {
                 sprintf(dest, "%.1fdB", val);
+            }
+            if (paramId == Parameter::Mode)
+            {
+                if (val < 0.5)
+                    strcpy(dest, "Record");
+                else
+                    strcpy(dest, "Playback");
             }
             else
             {
@@ -83,9 +86,20 @@ namespace DejaVu
 
         virtual void SetParameter(uint8_t paramId, uint16_t value) override
         {
-            //controller.SetParameter(paramId, value);
+            Serial.print("Setting param ");
+            Serial.print(paramId);
+            Serial.print(" to value ");
+            Serial.println(value);
+            controller.SetParameter(paramId, value);
             if (paramId == Parameter::InGain)
                 SetIOConfig();
+        }
+
+        virtual void SetLeds()
+        {
+            Polygons::pushDigital(2, controller.isRecordingBaseLoop ? 1 : 0);
+            Polygons::pushDigital(5, controller.isRecordingOverdub ? 1 : 0);
+            Polygons::pushDigital(8, (controller.isPlaybackEnabled || controller.isRecordingBaseLoop) ? 1 : 0);
         }
 
         virtual bool HandleUpdate(Polygons::ParameterUpdate* update) 
@@ -93,19 +107,22 @@ namespace DejaVu
             if (update->Type == MessageType::Digital && update->Index == 8 && update->Value > 0)
             {
                 controller.TriggerRecord();
+                SetLeds();
                 return true;
             }
             if (update->Type == MessageType::Digital && update->Index == 9 && update->Value > 0)
             {
                 controller.TriggerOverdub();
+                SetLeds();
                 return true;
             }
             else if (update->Type == MessageType::Digital && update->Index == 10 && update->Value > 0)
             {
                 controller.TriggerStartStop();
+                SetLeds();
                 return true;
             }
-
+            
             return false;
         }
 
@@ -113,6 +130,17 @@ namespace DejaVu
         {
             auto canvas = Polygons::getCanvas();
             canvas->fillRect(0, 0, 64, 10, 0); // remove the selected page highlighting
+            canvas->setTextColor(1);
+
+            canvas->setCursor(140, 19);
+            canvas->println("Load");
+            canvas->setCursor(140, 28);
+            canvas->println("<Click>");
+
+            canvas->setCursor(194, 19);
+            canvas->println("Save");
+            canvas->setCursor(194, 28);
+            canvas->println("<Click>");
         }
 
         virtual void AudioCallback(int32_t** inputs, int32_t** outputs, int bufferSize) override
@@ -129,7 +157,7 @@ namespace DejaVu
             
             float* ins[2] = {BufferInL, BufferInR};
             float* outs[2] = {BufferOutL, BufferOutR};
-            controller.Process(ins, outs, bufferSize);
+            //controller.Process(ins, outs, bufferSize);
             
             FloatBuffer2Int(outputs[0], BufferOutL, bufferSize);
             FloatBuffer2Int(outputs[1], BufferOutR, bufferSize);
