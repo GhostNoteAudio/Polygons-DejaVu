@@ -48,8 +48,8 @@ namespace DejaVu
 			{
 				// turning off recording
 				rec.FlushEndBufferAsync();
-				rec.SetMode(RecordingMode::Playback);
 				loopLength = rec.GetProcessedSamples();
+				rec.SetMode(RecordingMode::Playback);
 				isRecordingBaseLoop =  false;
 				isPlaybackEnabled = true;
 			}
@@ -61,7 +61,6 @@ namespace DejaVu
 				isPlaybackEnabled = false;
 			}
 			rec.ResetPtr();
-			rec.PreloadStartData();
 		}
 
 		void TriggerStartStop()
@@ -70,8 +69,9 @@ namespace DejaVu
 			{
 				// stopping playback and recording
 				rec.FlushEndBufferAsync();
-				isRecordingBaseLoop =  false;
 				loopLength = rec.GetProcessedSamples();
+				rec.SetMode(RecordingMode::Stopped);
+				isRecordingBaseLoop =  false;
 				isPlaybackEnabled = false;
 			}
 			else if (isRecordingOverdub)
@@ -87,7 +87,6 @@ namespace DejaVu
 			}
 			
 			rec.ResetPtr();
-			rec.PreloadStartData();
 		}
 
 		void TriggerOverdub()
@@ -99,12 +98,14 @@ namespace DejaVu
 			if (isPlaybackEnabled)
 			{
 				isRecordingOverdub = !isRecordingOverdub;
+				rec.SetMode(isRecordingOverdub ? RecordingMode::Overdub : RecordingMode::Playback);
 			}
 			else // playback was stopped
 			{
 				isPlaybackEnabled = true;
 				isRecordingOverdub = true;
-				//Delay.setPtr(0);
+				rec.SetMode(RecordingMode::Overdub);
+				rec.ResetPtr();
 			}
 		}
 
@@ -160,10 +161,8 @@ namespace DejaVu
 			// reset at end of loop
 			if (isPlaybackEnabled && rec.GetProcessedSamples() >= loopLength)
 			{
-				//rec.ResetFlashIdxRead();
-				//rec.ResetProcessedSamples();
+				rec.FlushEndBufferAsync();
 				rec.ResetPtr();
-				rec.PreloadStartData();
 				Serial.println("Resetting loop");
 			}
 		}
