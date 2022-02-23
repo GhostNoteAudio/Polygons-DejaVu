@@ -6,12 +6,14 @@
 #include "Utils.h"
 //#include "Z4Rev.h"
 #include "blocks/DelayBlockExternal.h"
+#include "FlashRecording.h"
 
 using namespace Polygons;
 
 namespace DejaVu
 {
-	DelayBlockExternal<2000000, BUFFER_SIZE> Delay(1000);
+	//DelayBlockExternal<2000000, BUFFER_SIZE> Delay(1000);
+	FlashRecording rec;
 
 	class ControllerDejaVu
 	{
@@ -37,7 +39,7 @@ namespace DejaVu
 			isRecordingOverdub = false;
 			isPlaybackEnabled = false;
 			loopLength = 0;
-			Delay.init();
+			rec.Init();
 		}
 
 		void TriggerRecord()
@@ -45,17 +47,21 @@ namespace DejaVu
 			if (isRecordingBaseLoop)
 			{
 				// turning off recording
+				rec.FlushEndBufferAsync();
+				rec.SetMode(RecordingMode::Playback);
+				loopLength = rec.GetProcessedSamples();
 				isRecordingBaseLoop =  false;
-				loopLength = Delay.getPtr();
 				isPlaybackEnabled = true;
 			}
 			else
 			{
 				// turning on recording
+				rec.SetMode(RecordingMode::Recording);
 				isRecordingBaseLoop = true;
 				isPlaybackEnabled = false;
 			}
-			Delay.setPtr(0);
+			rec.ResetPtr();
+			rec.PreloadStartData();
 		}
 
 		void TriggerStartStop()
@@ -63,24 +69,25 @@ namespace DejaVu
 			if (isRecordingBaseLoop)
 			{
 				// stopping playback and recording
+				rec.FlushEndBufferAsync();
 				isRecordingBaseLoop =  false;
-				loopLength = Delay.getPtr();
+				loopLength = rec.GetProcessedSamples();
 				isPlaybackEnabled = false;
 			}
 			else if (isRecordingOverdub)
 			{
+				rec.SetMode(RecordingMode::Stopped);
 				isRecordingOverdub = false;
 				isPlaybackEnabled = false;
 			}
 			else
 			{
-				if (isPlaybackEnabled)
-					isPlaybackEnabled = false;
-				else
-					isPlaybackEnabled = true;
+				isPlaybackEnabled = !isPlaybackEnabled;
+				rec.SetMode(isPlaybackEnabled ? RecordingMode::Playback : RecordingMode::Stopped);
 			}
 			
-			Delay.setPtr(0);
+			rec.ResetPtr();
+			rec.PreloadStartData();
 		}
 
 		void TriggerOverdub()
@@ -97,7 +104,7 @@ namespace DejaVu
 			{
 				isPlaybackEnabled = true;
 				isRecordingOverdub = true;
-				Delay.setPtr(0);
+				//Delay.setPtr(0);
 			}
 		}
 
@@ -143,35 +150,22 @@ namespace DejaVu
 			auto bufOverdubbed = b2.Ptr;
 			ZeroBuffer(bufPlayback, bufferSize);
 			ZeroBuffer(bufOverdubbed, bufferSize);
+			ZeroBuffer(outputs[0], bufferSize);
 
+			rec.Process(inputs[0], outputs[0], bufferSize);
+			Mix(outputs[0], inputs[0], 1.0, bufferSize);
+			Copy(outputs[1], outputs[0], bufferSize);
+
+			
 			// reset at end of loop
-			if (isPlaybackEnabled && Delay.getPtr() >= loopLength)
+			if (isPlaybackEnabled && rec.GetProcessedSamples() >= loopLength)
 			{
-				Delay.setPtr(0);
+				//rec.ResetFlashIdxRead();
+				//rec.ResetProcessedSamples();
+				rec.ResetPtr();
+				rec.PreloadStartData();
 				Serial.println("Resetting loop");
 			}
-			
-			if (isPlaybackEnabled)
-				Delay.read(bufPlayback, 0, bufferSize);
-
-			if (isRecordingBaseLoop)
-			{
-				Delay.write(inputs[0], bufferSize);
-			}
-			else if (isRecordingOverdub)
-			{
-				Mix(bufOverdubbed, bufPlayback, 1.0, bufferSize);
-				Mix(bufOverdubbed, inputs[0], 1.0, bufferSize);
-				Delay.write(bufOverdubbed, bufferSize);
-			}
-
-			ZeroBuffer(outputs[0], bufferSize);
-			Copy(outputs[0], inputs[0], bufferSize);
-			if (isPlaybackEnabled)
-				Mix(outputs[0], bufPlayback, 1.0, bufferSize);
-
-			Copy(outputs[1], outputs[0], bufferSize);
-			Delay.updatePtr(bufferSize);
 		}
 		
 	private:

@@ -157,7 +157,7 @@ namespace DejaVu
             
             float* ins[2] = {BufferInL, BufferInR};
             float* outs[2] = {BufferOutL, BufferOutR};
-            //controller.Process(ins, outs, bufferSize);
+            controller.Process(ins, outs, bufferSize);
             
             FloatBuffer2Int(outputs[0], BufferOutL, bufferSize);
             FloatBuffer2Int(outputs[1], BufferOutR, bufferSize);
