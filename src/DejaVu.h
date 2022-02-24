@@ -97,9 +97,9 @@ namespace DejaVu
 
         virtual void SetLeds()
         {
-            Polygons::pushDigital(2, controller.isRecordingBaseLoop ? 1 : 0);
-            Polygons::pushDigital(5, controller.isRecordingOverdub ? 1 : 0);
-            Polygons::pushDigital(8, (controller.isPlaybackEnabled || controller.isRecordingBaseLoop) ? 1 : 0);
+            Polygons::pushDigital(2, controller.recl.GetMode() == RecordingMode::Recording? 1 : 0);
+            Polygons::pushDigital(5, controller.recl.GetMode() == RecordingMode::Overdub ? 1 : 0);
+            Polygons::pushDigital(8, controller.recl.GetMode() != RecordingMode::Stopped ? 1 : 0);
         }
 
         virtual bool HandleUpdate(Polygons::ParameterUpdate* update) 
@@ -174,11 +174,16 @@ namespace DejaVu
 
         virtual void Start() override
         {
+            Serial.println("initialising controller...");
+            controller.Init();
+            Serial.println("initialising controller complete!");
+
             Serial.println("Starting up - waiting for controller signal...");
             os.waitForControllerSignal();
             SetNames();
             os.PageCount = 1;
             RegisterEffect();
+            
         }
     };
 }

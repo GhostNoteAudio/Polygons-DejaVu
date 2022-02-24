@@ -71,6 +71,9 @@ public:
 
     inline void Init()
     {
+        Serial.println("-------------------------------------------");
+        Serial.println(BufferFileName);
+
         if (!sd.begin(P_SPI_SD_CS, SPI_FULL_SPEED))
         {
             sd.initErrorHalt(&Serial);
@@ -78,30 +81,31 @@ public:
         }
         Serial.println("SD Card initialization done.");
         
-        bool initFile = false;
-        if (sd.exists(BufferFileName)) 
-        {
-            Serial.println("Buffer file already exists");
-        }
-        else
-        {
-            sd.mkdir("DejaVu");
-            initFile = true;
-        }
+        bool initFile = true;
+        sd.mkdir("DejaVu");
 
-        if (!file.open(BufferFileName, FILE_WRITE)) 
-            Serial.println("open failed");
+        if (!file.open(BufferFileName, O_RDWR | O_CREAT | O_TRUNC)) 
+            Serial.println("Failed to open file");
+        else
+            Serial.println("File created");
 
         if (initFile)
         {
-            uint8_t zeros[10000] = {0};
+            Serial.println("About to allocate...");
+            bool allocResult = file.preAllocate(17280000);
             file.seek(0);
+            auto size = file.size();
+            Serial.print("Allocation result: ");
+            Serial.print(allocResult);
+            Serial.print(" -- new file size: ");
+            Serial.println(size);
+            /*
             Serial.println("Initialising flash buffer...");
             for (size_t i = 0; i < 1728; i++) // 6 minute buffer
             {
                 file.write(zeros, 10000);
             }
-            file.seek(0);
+            file.seek(0);*/
         }
         Serial.println("Flash buffer ready");
 
@@ -119,6 +123,11 @@ public:
     inline void SetMode(RecordingMode mode)
     {
         Mode = mode;
+    }
+
+    inline RecordingMode GetMode()
+    {
+        return Mode;
     }
 
     inline void PreloadStartData()
@@ -166,11 +175,14 @@ public:
         Copy(Operations[OpsWriteIdx].Data, ActiveBuf == 0 ? BufRec0 : BufRec1, StorageBufferSize);
         OpsWriteIdx = (OpsWriteIdx + 1) % OperationsBufferSize;
 
-        Serial.print("Flushing end buffer, setting max ReadIdx to ");
-        Serial.println(FlashIdxWrite);
+        Serial.print("Flushing end buffer ");
 
         if (Mode == RecordingMode::Recording)
+        {
+            Serial.print("Setting max ReadIdx to ");
+            Serial.println(FlashIdxWrite);
             MaxAllowedFlashReadIdx = FlashIdxWrite;
+        }
     }
 
     inline void Process(float* input, float* output, int bufSize)
@@ -183,18 +195,20 @@ public:
             if (shouldRead)
                 Copy(output, &BufPlay0[BufIdx], bufSize);
 
-            Copy(&BufRec0[BufIdx], input, bufSize);
-            if (Mode == RecordingMode::Overdub)
-                Mix(&BufRec0[BufIdx], &BufPlay0[BufIdx], 1.0, bufSize);
+            if (shouldWrite)
+                Copy(&BufRec0[BufIdx], input, bufSize);
+            else
+                ZeroBuffer(&BufRec0[BufIdx], bufSize);
         }
         else
         {
             if (shouldRead)
                 Copy(output, &BufPlay1[BufIdx], bufSize);
 
-            Copy(&BufRec1[BufIdx], input, bufSize);
-            if (Mode == RecordingMode::Overdub)
-                Mix(&BufRec1[BufIdx], &BufPlay1[BufIdx], 1.0, bufSize);
+            if (shouldWrite)
+                Copy(&BufRec1[BufIdx], input, bufSize);
+            else
+                ZeroBuffer(&BufRec1[BufIdx], bufSize);
         }
 
         BufIdx += bufSize;
@@ -225,6 +239,8 @@ public:
                 Operations[OpsWriteIdx].FlashIdx = writeIdx;
                 Operations[OpsWriteIdx].Write = true;
                 Operations[OpsWriteIdx].Pending = shouldWrite;
+                if (Mode == RecordingMode::Overdub) // when overdubbing, mix existing data into the recording buffer
+                    Mix(ActiveBuf == 0 ? BufRec0 : BufRec1, ActiveBuf == 0 ? BufPlay0 : BufPlay1, 1.0, StorageBufferSize);
                 Copy(Operations[OpsWriteIdx].Data, ActiveBuf == 0 ? BufRec0 : BufRec1, StorageBufferSize);
                 OpsWriteIdx = (OpsWriteIdx + 1) % OperationsBufferSize;
             }
