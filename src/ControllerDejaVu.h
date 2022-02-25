@@ -6,7 +6,7 @@
 #include "Utils.h"
 //#include "Z4Rev.h"
 #include "blocks/DelayBlockExternal.h"
-#include "FlashRecording.h"
+#include "FlashReaderWriter.h"
 
 using namespace Polygons;
 
@@ -24,7 +24,7 @@ namespace DejaVu
 		int mode; // playback or record
 
 	public:
-		FlashRecording recl, recr;
+		FlashReaderWriter recl, recr;
 		
 		ControllerDejaVu(int samplerate) : recl(".L"), recr(".R")
 		{
@@ -37,7 +37,7 @@ namespace DejaVu
 		void Init()
 		{
 			recl.Init();
-			recr.Init();
+			//recr.Init();
 		}
 
 		void TriggerRecord()
@@ -45,20 +45,25 @@ namespace DejaVu
 			if (recl.GetMode() == RecordingMode::Recording)
 			{
 				// turning off recording
-				recl.FlushEndBufferAsync();
-				recr.FlushEndBufferAsync();
-				loopLength = recl.GetProcessedSamples();
+				recl.SetTotalLength(loopLength);
+				//recr.SetTotalLength(loopLength);
+				recl.AdvanceWrite();
+				//recr.AdvanceWrite();
 				recl.SetMode(RecordingMode::Playback);
-				recr.SetMode(RecordingMode::Playback);
+				//recr.SetMode(RecordingMode::Playback);
+				
 			}
 			else
 			{
 				// turning on recording
+				loopLength = 0;
+				recl.SetTotalLength(0);
+				//recr.SetTotalLength(loopLength);
 				recl.SetMode(RecordingMode::Recording);
-				recr.SetMode(RecordingMode::Recording);
+				//recr.SetMode(RecordingMode::Recording);
 			}
-			recl.ResetPtr();
-			recr.ResetPtr();
+			recl.PreparePlay();
+			//recr.PreparePlay();
 		}
 
 		void TriggerStartStop()
@@ -66,30 +71,31 @@ namespace DejaVu
 			if (recl.GetMode() == RecordingMode::Recording)
 			{
 				// stopping playback and recording
-				recl.FlushEndBufferAsync();
-				recr.FlushEndBufferAsync();
-				loopLength = recl.GetProcessedSamples();
+				recl.SetTotalLength(loopLength);
+				//recr.SetTotalLength(loopLength);
+				recl.AdvanceWrite();
+				//recr.AdvanceWrite();
 				recl.SetMode(RecordingMode::Stopped);
-				recr.SetMode(RecordingMode::Stopped);
+				//recr.SetMode(RecordingMode::Stopped);
 			}
 			else if (recl.GetMode() == RecordingMode::Overdub)
 			{
 				recl.SetMode(RecordingMode::Stopped);
-				recr.SetMode(RecordingMode::Stopped);
+				//recr.SetMode(RecordingMode::Stopped);
 			}
 			else
 			{
 				auto playState = recl.GetMode() == RecordingMode::Playback ? RecordingMode::Stopped : RecordingMode::Playback;
 				recl.SetMode(playState);
-				recr.SetMode(playState);
+				//recr.SetMode(playState);
 			}
 			
-			recl.ResetPtr();
-			recr.ResetPtr();
+			recl.PreparePlay();
+			//recr.PreparePlay();
 		}
 
 		void TriggerOverdub()
-		{
+		{/*
 			// overdub disabled when recording base loop
 			if (recl.GetMode() == RecordingMode::Recording)
 				return;
@@ -111,7 +117,7 @@ namespace DejaVu
 				recr.SetMode(RecordingMode::Overdub);
 				recl.ResetPtr();
 				recr.ResetPtr();
-			}
+			}*/
 		}
 
 		int GetSamplerate()
@@ -160,21 +166,11 @@ namespace DejaVu
 			ZeroBuffer(outputs[1], bufferSize);
 
 			recl.Process(inputs[0], outputs[0], bufferSize);
-			recr.Process(inputs[1], outputs[1], bufferSize);
+			//recr.Process(inputs[1], outputs[1], bufferSize);
 			Mix(outputs[0], inputs[0], 1.0, bufferSize);
-			Mix(outputs[1], inputs[1], 1.0, bufferSize);
+			//Mix(outputs[1], inputs[1], 1.0, bufferSize);
 
-			
-			// reset at end of loop
-			auto playback = recl.GetMode() == RecordingMode::Overdub || recl.GetMode() == RecordingMode::Playback;
-			if (playback && recl.GetProcessedSamples() >= loopLength)
-			{
-				recl.FlushEndBufferAsync();
-				recr.FlushEndBufferAsync();
-				recl.ResetPtr();
-				recr.ResetPtr();
-				Serial.println("Resetting loop");
-			}
+			loopLength += bufferSize;
 		}
 		
 	private:

@@ -41,7 +41,7 @@ class FlashRecording
 
     char BufferFileName[64];
 
-    // These buffers store the data from the first 2 blocks in flash.
+    // These buffers store the data from the first block in flash.
     // We do this because when the loop comes around, we need this data very quickly, and we don't have time to load it from flash
     float BufLoopStart0[StorageBufferSize] = {0};
     float BufLoopStart1[StorageBufferSize] = {0};
@@ -50,8 +50,8 @@ class FlashRecording
     float BufRec1[StorageBufferSize] = {0};
     float BufPlay0[StorageBufferSize] = {0};
     float BufPlay1[StorageBufferSize] = {0};
-    int PlayFlashIdx0 = 0; // the index of the data in bufPlay0 in flash memory
-    int PlayFlashIdx1 = 0; // the index of the data in bufPlay1 in flash memory
+    //int PlayFlashIdx0 = 0; // the index of the data in bufPlay0 in flash memory
+    //int PlayFlashIdx1 = 0; // the index of the data in bufPlay1 in flash memory
     int BufIdx = 0;
     int FlashIdxRead = 0;
     int FlashIdxWrite = 0;
@@ -136,8 +136,10 @@ public:
         Copy(BufPlay0, BufLoopStart0, StorageBufferSize);
         Copy(BufPlay1, BufLoopStart1, StorageBufferSize);
         FlashIdxRead = 2 * StorageBufferSize;
-        PlayFlashIdx0 = 0;
-        PlayFlashIdx1 = StorageBufferSize;
+        Serial.println("Setting FlashIdxWrite to 0");
+        FlashIdxWrite = 0; // we want recorded data to sync up with what's being played
+        //PlayFlashIdx0 = 0;
+        //PlayFlashIdx1 = StorageBufferSize;
     }
 
     inline void ResetPtr()
@@ -145,6 +147,7 @@ public:
         Serial.println("Resetting pointers to zero");
         BufIdx = 0;
         FlashIdxRead = 0;
+        Serial.println("Setting FlashIdxWrite to 0");
         FlashIdxWrite = 0;
         ActiveBuf = 0;
         ProcessedSamples = 0;
@@ -162,20 +165,20 @@ public:
         if (!shouldWrite)
             return;
 
-        int writeIdx = FlashIdxWrite;
+        //int writeIdx = FlashIdxWrite;
         // when overdubbing, we make sure that we're writing the recorded data into the same buffer that was
         // playing, to make the recordings line up. otherwise overdub will lag behind.
-        if (Mode == RecordingMode::Overdub)
-            writeIdx = ActiveBuf == 0 ? PlayFlashIdx0 : PlayFlashIdx1;
+        //if (Mode == RecordingMode::Overdub)
+        //    writeIdx = ActiveBuf == 0 ? PlayFlashIdx0 : PlayFlashIdx1;
 
         Operations[OpsWriteIdx].Buffer01 = ActiveBuf;
-        Operations[OpsWriteIdx].FlashIdx = writeIdx;
+        Operations[OpsWriteIdx].FlashIdx = FlashIdxWrite;
         Operations[OpsWriteIdx].Write = true;
         Operations[OpsWriteIdx].Pending = true;
         Copy(Operations[OpsWriteIdx].Data, ActiveBuf == 0 ? BufRec0 : BufRec1, StorageBufferSize);
         OpsWriteIdx = (OpsWriteIdx + 1) % OperationsBufferSize;
 
-        Serial.print("Flushing end buffer ");
+        Serial.println("Flushing end buffer");
 
         if (Mode == RecordingMode::Recording)
         {
@@ -227,16 +230,18 @@ public:
             }
             if (shouldWrite)
             {
-                int writeIdx = FlashIdxWrite;
+                //int writeIdx = FlashIdxWrite;
                 // when overdubbing, we make sure that we're writing the recorded data into the same buffer that was
                 // playing, to make the recordings line up. otherwise overdub will lag behind.
-                if (Mode == RecordingMode::Overdub)
-                    writeIdx = ActiveBuf == 0 ? PlayFlashIdx0 : PlayFlashIdx1;
+                //if (Mode == RecordingMode::Overdub)
+                //    writeIdx = ActiveBuf == 0 ? PlayFlashIdx0 : PlayFlashIdx1;
+                Serial.print("Creating write operation at index ");
+                Serial.println(FlashIdxWrite);
 
                 if (Operations[OpsWriteIdx].Pending)
                     Serial.println("While trying to write - operations have not completed!");
                 Operations[OpsWriteIdx].Buffer01 = ActiveBuf;
-                Operations[OpsWriteIdx].FlashIdx = writeIdx;
+                Operations[OpsWriteIdx].FlashIdx = FlashIdxWrite;
                 Operations[OpsWriteIdx].Write = true;
                 Operations[OpsWriteIdx].Pending = shouldWrite;
                 if (Mode == RecordingMode::Overdub) // when overdubbing, mix existing data into the recording buffer
@@ -272,16 +277,16 @@ public:
         if (op->Buffer01 == 0)
         {
             file.read((int8_t*)BufPlay0, StorageBufferSize * 4);
-            PlayFlashIdx0 = op->FlashIdx;
+            //PlayFlashIdx0 = op->FlashIdx;
         }
         else
         {
             file.read((int8_t*)BufPlay1, StorageBufferSize * 4);
-            PlayFlashIdx1 = op->FlashIdx;
+            //PlayFlashIdx1 = op->FlashIdx;
         }
         op->Pending = false;
         FlashIdxRead += StorageBufferSize;
-        Serial.println("Done with Read Op");
+        //Serial.println("Done with Read Op");
     }
 
     inline void ProcessWriteOperation(FlashOperation* op)
@@ -294,20 +299,15 @@ public:
         // store the very first 2 buffers in RAM for fast access
         if (op->FlashIdx == 0)
         {
-            Serial.println("Storing LoopStart0");
-            Copy(BufLoopStart0, op->Data, StorageBufferSize);
+            Serial.println("Storing LoopStart");
+            Copy(BufLoopStart, op->Data, StorageBufferSize);
         }
-        if (op->FlashIdx == StorageBufferSize)
-        {
-            Serial.println("Storing LoopStart1");
-            Copy(BufLoopStart1, op->Data, StorageBufferSize);
-        }
-
+        
         file.seek(op->FlashIdx * 4);
         file.write((int8_t*)op->Data, StorageBufferSize * 4);
         op->Pending = false;
         FlashIdxWrite += StorageBufferSize;
-        Serial.println("Done with Write Op");
+        //Serial.println("Done with Write Op");
     }
 
     inline void ProcessFlashOperations()
