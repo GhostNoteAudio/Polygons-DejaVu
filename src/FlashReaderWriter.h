@@ -136,12 +136,12 @@ public:
         if (TotalLength % StorageBufferSize > 0)
             TotalStorageArea += StorageBufferSize;
 
-        LogInfof("Setting TotalLength to: %d :: %d", TotalLength, TotalStorageArea)
+        LogDebugf("Setting TotalLength to: %d :: %d", TotalLength, TotalStorageArea)
     }
 
     inline void PreparePlay()
     {
-        LogInfo("Preparing play...")
+        LogDebug("Preparing play...")
         // We load the BufLoopStart into the queued buffer, and then invoke AdvanceRead which copies it into the main buffer
         Copy(BufReadNext, BufLoopStart0, StorageBufferSize);
         Copy(BufReadNextNext, BufLoopStart1, StorageBufferSize);
@@ -191,7 +191,7 @@ public:
         {
             Mix(BufWrite, BufRead, 1.0, StorageBufferSize);
             WriteOps[WriteOpsHead].FlashIdx = BufReadIdx;
-            LogInfof("Overdubbing, using BufReadIdx as flash Index: %d", BufReadIdx)
+            LogDebugf("Overdubbing, using BufReadIdx as flash Index: %d", BufReadIdx)
         }
         Copy(WriteOps[WriteOpsHead].Data, BufWrite, StorageBufferSize);
         ZeroBuffer(BufWrite, StorageBufferSize);
@@ -248,7 +248,7 @@ public:
     inline void ProcessReadOperation(FlashReadOp* op)
     {
         auto t1 = micros();
-        LogInfof("Processing Read operation %d. Reading from flashIdx %d", op->OperationId, op->FlashIdx)
+        LogDebugf("Processing Read operation %d. Reading from flashIdx %d", op->OperationId, op->FlashIdx)
 
         if (op->FlashIdx >= TotalStorageArea && TotalStorageArea != 0)
         {
@@ -259,13 +259,13 @@ public:
 
         if (op->FlashIdx == 0)
         {
-            LogInfo("Reading FlashIdx 0 from RAM")
+            LogDebug("Reading FlashIdx 0 from RAM")
             // Cheat and read the data at index 0 from ram, not flash
             Copy(BufReadNextNext, BufLoopStart0, StorageBufferSize);
         }
         else if (op->FlashIdx == StorageBufferSize)
         {
-            LogInfo("Reading FlashIdx +1buffer from RAM")
+            LogDebug("Reading FlashIdx +1buffer from RAM")
             // Cheat and read the data at index StorageBufferSize from ram, not flash
             Copy(BufReadNextNext, BufLoopStart1, StorageBufferSize);
         }
@@ -277,7 +277,7 @@ public:
         BufReadNextNextIdx = op->FlashIdx;
         op->Pending = false;
         auto t2 = micros();
-        LogInfof("ProcessReadOp time: %d", (t2-t1))
+        LogDebugf("ProcessReadOp time: %d", (t2-t1))
     }
 
     inline void ProcessWriteOperation(FlashWriteOp* op)

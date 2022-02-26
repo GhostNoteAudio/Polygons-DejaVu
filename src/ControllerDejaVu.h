@@ -37,7 +37,7 @@ namespace DejaVu
 		void Init()
 		{
 			recl.Init();
-			//recr.Init();
+			recr.Init();
 		}
 
 		void TriggerRecord()
@@ -46,11 +46,11 @@ namespace DejaVu
 			{
 				// turning off recording
 				recl.SetTotalLength(loopLength);
-				//recr.SetTotalLength(loopLength);
+				recr.SetTotalLength(loopLength);
 				recl.AdvanceWrite();
-				//recr.AdvanceWrite();
+				recr.AdvanceWrite();
 				recl.SetMode(RecordingMode::Playback);
-				//recr.SetMode(RecordingMode::Playback);
+				recr.SetMode(RecordingMode::Playback);
 				
 			}
 			else
@@ -58,12 +58,12 @@ namespace DejaVu
 				// turning on recording
 				loopLength = 0;
 				recl.SetTotalLength(0);
-				//recr.SetTotalLength(loopLength);
+				recr.SetTotalLength(0);
 				recl.SetMode(RecordingMode::Recording);
-				//recr.SetMode(RecordingMode::Recording);
+				recr.SetMode(RecordingMode::Recording);
 			}
 			recl.PreparePlay();
-			//recr.PreparePlay();
+			recr.PreparePlay();
 		}
 
 		void TriggerStartStop()
@@ -72,26 +72,26 @@ namespace DejaVu
 			{
 				// stopping playback and recording
 				recl.SetTotalLength(loopLength);
-				//recr.SetTotalLength(loopLength);
+				recr.SetTotalLength(loopLength);
 				recl.AdvanceWrite();
-				//recr.AdvanceWrite();
+				recr.AdvanceWrite();
 				recl.SetMode(RecordingMode::Stopped);
-				//recr.SetMode(RecordingMode::Stopped);
+				recr.SetMode(RecordingMode::Stopped);
 			}
 			else if (recl.GetMode() == RecordingMode::Overdub)
 			{
 				recl.SetMode(RecordingMode::Stopped);
-				//recr.SetMode(RecordingMode::Stopped);
+				recr.SetMode(RecordingMode::Stopped);
 			}
 			else
 			{
 				auto playState = recl.GetMode() == RecordingMode::Playback ? RecordingMode::Stopped : RecordingMode::Playback;
 				recl.SetMode(playState);
-				//recr.SetMode(playState);
+				recr.SetMode(playState);
 			}
 			
 			recl.PreparePlay();
-			//recr.PreparePlay();
+			recr.PreparePlay();
 		}
 
 		void TriggerOverdub()
@@ -103,19 +103,19 @@ namespace DejaVu
 			else if (recl.GetMode() == RecordingMode::Playback)
 			{
 				recl.SetMode(RecordingMode::Overdub);
-				//recr.SetMode(RecordingMode::Overdub);
+				recr.SetMode(RecordingMode::Overdub);
 			}
 			else if (recl.GetMode() == RecordingMode::Overdub)
 			{
 				recl.SetMode(RecordingMode::Playback);
-				//recr.SetMode(RecordingMode::Playback);
+				recr.SetMode(RecordingMode::Playback);
 			}
 			else // playback was stopped
 			{
 				recl.SetMode(RecordingMode::Overdub);
-				//recr.SetMode(RecordingMode::Overdub);
+				recr.SetMode(RecordingMode::Overdub);
 				recl.PreparePlay();
-				//recr.PreparePlay();
+				recr.PreparePlay();
 			}
 		}
 
@@ -165,9 +165,9 @@ namespace DejaVu
 			ZeroBuffer(outputs[1], bufferSize);
 
 			recl.Process(inputs[0], outputs[0], bufferSize);
-			//recr.Process(inputs[1], outputs[1], bufferSize);
+			recr.Process(inputs[1], outputs[1], bufferSize);
 			Mix(outputs[0], inputs[0], 1.0, bufferSize);
-			//Mix(outputs[1], inputs[1], 1.0, bufferSize);
+			Mix(outputs[1], inputs[1], 1.0, bufferSize);
 
 			loopLength += bufferSize;
 		}
