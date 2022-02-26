@@ -16,21 +16,6 @@ enum class RecordingMode
 
 const char* BaseFilePath = "DejaVu/RecordingBuffer.dat";
 
-void ts()
-{
-    auto time = micros();
-    auto seconds = (int)(time / 1000000);
-    auto millis = (int)(time / 1000) - seconds * 1000;
-    auto micro = time - seconds * 1000000 - millis * 1000;
-    Serial.printf("[%03d:%03d.%03d] : ", seconds, millis, micro);
-    /*Serial.print(seconds);
-    Serial.print(":");
-    Serial.print(millis );
-    Serial.print(".");
-    Serial.print(micro);
-    Serial.print(": ");*/
-}
-
 class FlashReaderWriter
 {
     SdFat sd;
@@ -38,30 +23,46 @@ class FlashReaderWriter
 
     const static int StorageBufferSize = 4096; // must be multiple of the BUFFER_SIZE
 
-    struct FlashOperation
+    struct FlashReadOp
     {
         int FlashIdx = 0;
         bool Pending = false;
+        int OperationId = 0;
+    };
+
+    struct FlashWriteOp
+    {
+        int FlashIdx = 0;
+        bool Pending = false;
+        int OperationId = 0;
         float Data[StorageBufferSize] = {0};
     };
 
      // circular buffer for operations processed async
-    FlashOperation WriteOps[2];
-    FlashOperation ReadOps[2];
+    const static int OpBufferSize = 3;
+    FlashWriteOp WriteOps[OpBufferSize];
+    FlashReadOp ReadOps[OpBufferSize];
     int ReadOpsHead = 0;
     int ReadOpsTail = 0;
     int WriteOpsHead = 0;
     int WriteOpsTail = 0;
+    int OperationId = 0;
 
     char BufferFileName[64];
 
     // These buffers store the data from the first block in flash.
     // We do this because when the loop comes around, we need this data very quickly, and we don't have time to load it from flash
-    float BufLoopStart[StorageBufferSize] = {0};
+    float BufLoopStart0[StorageBufferSize] = {0};
+    float BufLoopStart1[StorageBufferSize] = {0};
 
     float BufWrite[StorageBufferSize] = {0};
     float BufRead[StorageBufferSize] = {0};
     float BufReadNext[StorageBufferSize] = {0};
+    float BufReadNextNext[StorageBufferSize] = {0};
+    
+    int BufReadIdx = 0;
+    int BufReadNextIdx = 0;
+    int BufReadNextNextIdx = 0;
 
     int BufIdx = 0;
     int BufIdxTotal = 0;
@@ -77,42 +78,38 @@ public:
     {
         strcpy(BufferFileName, BaseFilePath);
         strcat(BufferFileName, fileSuffix);
-        Serial.print("Buffer file: ");
-        Serial.println(BufferFileName);
+        LogInfof("Buffer file: %s", BufferFileName)
     }
 
     inline void Init()
     {
-        Serial.println("-------------------------------------------");
-        Serial.println(BufferFileName);
+        LogInfo("-------------------------------------------")
+        LogInfo(BufferFileName)
 
-        if (!sd.begin(P_SPI_SD_CS, SPI_FULL_SPEED))
+        if (!sd.begin(P_SPI_SD_CS, 60000000))
         {
             sd.initErrorHalt(&Serial);
-            Serial.println("Bad stuff");
+            LogError("Unable to initialise SD Card!")
         }
-        Serial.println("SD Card initialization done.");
+        LogInfo("SD Card initialization done.")
         
         bool initFile = true;
         sd.mkdir("DejaVu");
 
-        if (!file.open(BufferFileName, O_RDWR | O_CREAT | O_TRUNC)) 
-            Serial.println("Failed to open file");
+        if (!file.open(BufferFileName, O_RDWR | O_CREAT | O_TRUNC))
+            LogError("Failed to open buffer file")
         else
-            Serial.println("File created");
+            LogInfo("Bufferfile created")
 
         if (initFile)
         {
-            Serial.println("About to allocate...");
+            LogInfo("About to allocate...")
             bool allocResult = file.preAllocate(17280000);
             file.seek(0);
             auto size = file.size();
-            Serial.print("Allocation result: ");
-            Serial.print(allocResult);
-            Serial.print(" -- new file size: ");
-            Serial.println(size);
+            LogInfof("Allocation result: %s -- new file size: %d", allocResult ? "true" : "false", size)
         }
-        Serial.println("Flash buffer ready");
+        LogInfo("Flash buffer ready")
 
         WriteOps[0].Pending = false;
         WriteOps[1].Pending = false;
@@ -139,20 +136,18 @@ public:
         if (TotalLength % StorageBufferSize > 0)
             TotalStorageArea += StorageBufferSize;
 
-        ts();
-        Serial.print("Setting TotalLength to: ");
-        Serial.print(TotalLength);
-        Serial.print(" :: ");
-        Serial.println(TotalStorageArea);
+        LogInfof("Setting TotalLength to: %d :: %d", TotalLength, TotalStorageArea)
     }
 
     inline void PreparePlay()
     {
-        ts();
-        Serial.println("Preparing play...");
+        LogInfo("Preparing play...")
         // We load the BufLoopStart into the queued buffer, and then invoke AdvanceRead which copies it into the main buffer
-        Copy(BufReadNext, BufLoopStart, StorageBufferSize);
-        FlashIdxRead = StorageBufferSize;
+        Copy(BufReadNext, BufLoopStart0, StorageBufferSize);
+        Copy(BufReadNextNext, BufLoopStart1, StorageBufferSize);
+        BufReadNextIdx = 0;
+        BufReadNextNextIdx = StorageBufferSize;
+        FlashIdxRead = 2 * StorageBufferSize;
         FlashIdxWrite = 0;
         BufIdx = 0;
         BufIdxTotal = 0;
@@ -161,51 +156,58 @@ public:
 
     inline void AdvanceRead()
     {
-        ts();
-        Serial.print("Advance Read with ");
-        Serial.print(BufIdx);
-        Serial.println(" samples");
+        LogDebugf("Advance Read with %d samples. OpId %d", BufIdx, OperationId)
 
         Copy(BufRead, BufReadNext, StorageBufferSize);
-        ZeroBuffer(BufReadNext, StorageBufferSize);
+        Copy(BufReadNext, BufReadNextNext, StorageBufferSize);
+        ZeroBuffer(BufReadNextNext, StorageBufferSize);
+        BufReadIdx = BufReadNextIdx;
+        BufReadNextIdx = BufReadNextNextIdx;
 
         if (ReadOps[ReadOpsHead].Pending)
-            Serial.println("While trying to read - operations have not completed!");
+            LogWarn("While trying to read - operations have not completed!")
         ReadOps[ReadOpsHead].FlashIdx = FlashIdxRead;
+        ReadOps[ReadOpsHead].OperationId = OperationId;
         ReadOps[ReadOpsHead].Pending = true;
-        ReadOpsHead = (ReadOpsHead + 1) % 2;
+        ReadOpsHead = (ReadOpsHead + 1) % OpBufferSize;
         FlashIdxRead += StorageBufferSize;
         if (FlashIdxRead >= TotalStorageArea)
             FlashIdxRead = 0;
 
         shouldReadCurrentBuffer = false;
+        OperationId++;
     }
 
     inline void AdvanceWrite()
     {
-        ts();
-        Serial.print("Advance Write with ");
-        Serial.print(BufIdx);
-        Serial.println(" samples");
+        LogDebugf("Advance Write with %d samples. OpId %d", BufIdx, OperationId)
 
         if (WriteOps[WriteOpsHead].Pending)
-            Serial.println("While trying to write - operations have not completed!");
+            LogWarn("While trying to write - operations have not completed!")
         WriteOps[WriteOpsHead].FlashIdx = FlashIdxWrite;
+        WriteOps[WriteOpsHead].OperationId = OperationId;
         WriteOps[WriteOpsHead].Pending = true;
-        if (Mode == RecordingMode::Overdub) // when overdubbing, mix existing data into the recording buffer
+        if (shouldForceOverdub)
+        {
             Mix(BufWrite, BufRead, 1.0, StorageBufferSize);
+            WriteOps[WriteOpsHead].FlashIdx = BufReadIdx;
+            LogInfof("Overdubbing, using BufReadIdx as flash Index: %d", BufReadIdx)
+        }
         Copy(WriteOps[WriteOpsHead].Data, BufWrite, StorageBufferSize);
         ZeroBuffer(BufWrite, StorageBufferSize);
-        WriteOpsHead = (WriteOpsHead + 1) % 2;
+        WriteOpsHead = (WriteOpsHead + 1) % OpBufferSize;
         FlashIdxWrite += StorageBufferSize;
         if (FlashIdxWrite >= TotalStorageArea && TotalStorageArea != 0)
             FlashIdxWrite = 0;
 
         shouldWriteCurrentBuffer = false;
+        shouldForceOverdub = false;
+        OperationId++;
     }
 
     bool shouldReadCurrentBuffer = false;
     bool shouldWriteCurrentBuffer = false;
+    bool shouldForceOverdub = false;
 
     inline void Process(float* input, float* output, int bufSize)
     {
@@ -213,19 +215,20 @@ public:
         auto shouldWriteNow = Mode == RecordingMode::Recording || Mode == RecordingMode::Overdub;
         shouldReadCurrentBuffer = shouldReadCurrentBuffer || shouldReadNow;
         shouldWriteCurrentBuffer = shouldWriteCurrentBuffer || shouldWriteNow;
+        shouldForceOverdub = shouldForceOverdub || Mode == RecordingMode::Overdub;
 
         if (BufIdx >= StorageBufferSize || (BufIdxTotal >= TotalLength && TotalLength != 0))
         {
-            if (shouldReadCurrentBuffer)
-                AdvanceRead();
             if (shouldWriteCurrentBuffer)
                 AdvanceWrite();
+
+            if (shouldReadCurrentBuffer)
+                AdvanceRead();
 
             if (BufIdxTotal >= TotalLength && TotalLength != 0)
             {
                 BufIdxTotal = 0;
-                ts();
-                Serial.println("Resetting BufIdxTotal");
+                LogDebug("Resetting BufIdxTotal")
             }
             BufIdx = 0;
         }
@@ -242,74 +245,83 @@ public:
         BufIdxTotal += bufSize;
     }
 
-    inline void ProcessReadOperation(FlashOperation* op)
+    inline void ProcessReadOperation(FlashReadOp* op)
     {
-        ts();
-        Serial.print("Read op pending. Reading from flashIdx ");
-        Serial.println(op->FlashIdx);
+        auto t1 = micros();
+        LogInfof("Processing Read operation %d. Reading from flashIdx %d", op->OperationId, op->FlashIdx)
 
         if (op->FlashIdx >= TotalStorageArea && TotalStorageArea != 0)
         {
-            ts();
-            Serial.print("Trying to read out of bound flash data at Index ");
-            Serial.print(op->FlashIdx);
-            Serial.println(" -- SHOULD NOT HAPPEN aborting read");
+            LogWarnf("Trying to read out of bound flash data at Index %d - Aborting Read", op->FlashIdx)
             op->Pending = false;
             return;
         }
 
         if (op->FlashIdx == 0)
         {
-            ts();
-            Serial.println("Reading FlashIdx 0 from RAM");
+            LogInfo("Reading FlashIdx 0 from RAM")
             // Cheat and read the data at index 0 from ram, not flash
-            Copy(BufReadNext, BufLoopStart, StorageBufferSize);
+            Copy(BufReadNextNext, BufLoopStart0, StorageBufferSize);
+        }
+        else if (op->FlashIdx == StorageBufferSize)
+        {
+            LogInfo("Reading FlashIdx +1buffer from RAM")
+            // Cheat and read the data at index StorageBufferSize from ram, not flash
+            Copy(BufReadNextNext, BufLoopStart1, StorageBufferSize);
         }
         else
         {
             file.seek(op->FlashIdx * 4);
-            file.read((int8_t*)BufReadNext, StorageBufferSize * 4);
+            file.read((int8_t*)BufReadNextNext, StorageBufferSize * 4);
         }
+        BufReadNextNextIdx = op->FlashIdx;
         op->Pending = false;
+        auto t2 = micros();
+        LogInfof("ProcessReadOp time: %d", (t2-t1))
     }
 
-    inline void ProcessWriteOperation(FlashOperation* op)
+    inline void ProcessWriteOperation(FlashWriteOp* op)
     {
-        ts();
-        Serial.print("Write op pending. Writing to flashIdx ");
-        Serial.println(op->FlashIdx);
+        auto t1 = micros();
+        LogDebugf("Processing Write operation %d. Writing to flashIdx %d", op->OperationId, op->FlashIdx)
 
-        // store the very first buffer in RAM for fast access
+        // store the first buffers in RAM for fast access
         if (op->FlashIdx == 0)
         {
-            ts();
-            Serial.println("Storing LoopStart");
-            Copy(BufLoopStart, op->Data, StorageBufferSize);
+            LogDebug("Storing LoopStart0")
+            Copy(BufLoopStart0, op->Data, StorageBufferSize);
+        }
+        if (op->FlashIdx == StorageBufferSize)
+        {
+            LogDebug("Storing LoopStart1")
+            Copy(BufLoopStart1, op->Data, StorageBufferSize);
         }
         
         file.seek(op->FlashIdx * 4);
         file.write((int8_t*)op->Data, StorageBufferSize * 4);
         op->Pending = false;
+        auto t2 = micros();
+        LogDebugf("ProcessWriteOp time: %d", (t2-t1))
     }
 
     inline void ProcessFlashOperations()
     {
-        while (WriteOpsHead != WriteOpsTail)
-        {
-            auto op = &WriteOps[WriteOpsTail];
-            if (op->Pending)
-                ProcessWriteOperation(op);
-            
-            WriteOpsTail = (WriteOpsTail + 1) % 2;
-        }
-
         while (ReadOpsHead != ReadOpsTail)
         {
             auto op = &ReadOps[ReadOpsTail];
             if (op->Pending)
                 ProcessReadOperation(op);
             
-            ReadOpsTail = (ReadOpsTail + 1) % 2;
+            ReadOpsTail = (ReadOpsTail + 1) % OpBufferSize;
+        }
+
+        while (WriteOpsHead != WriteOpsTail)
+        {
+            auto op = &WriteOps[WriteOpsTail];
+            if (op->Pending)
+                ProcessWriteOperation(op);
+            
+            WriteOpsTail = (WriteOpsTail + 1) % OpBufferSize;
         }
     }
 };

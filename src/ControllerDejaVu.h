@@ -95,29 +95,28 @@ namespace DejaVu
 		}
 
 		void TriggerOverdub()
-		{/*
+		{
 			// overdub disabled when recording base loop
 			if (recl.GetMode() == RecordingMode::Recording)
 				return;
 
 			else if (recl.GetMode() == RecordingMode::Playback)
 			{
-				//isRecordingOverdub = !isRecordingOverdub;
 				recl.SetMode(RecordingMode::Overdub);
-				recr.SetMode(RecordingMode::Overdub);
+				//recr.SetMode(RecordingMode::Overdub);
 			}
 			else if (recl.GetMode() == RecordingMode::Overdub)
 			{
 				recl.SetMode(RecordingMode::Playback);
-				recr.SetMode(RecordingMode::Playback);
+				//recr.SetMode(RecordingMode::Playback);
 			}
 			else // playback was stopped
 			{
 				recl.SetMode(RecordingMode::Overdub);
-				recr.SetMode(RecordingMode::Overdub);
-				recl.ResetPtr();
-				recr.ResetPtr();
-			}*/
+				//recr.SetMode(RecordingMode::Overdub);
+				recl.PreparePlay();
+				//recr.PreparePlay();
+			}
 		}
 
 		int GetSamplerate()

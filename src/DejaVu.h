@@ -174,11 +174,11 @@ namespace DejaVu
 
         virtual void Start() override
         {
-            Serial.println("initialising controller...");
+            LogInfo("initialising controller...")
             controller.Init();
-            Serial.println("initialising controller complete!");
+            LogInfo("initialising controller complete!")
 
-            Serial.println("Starting up - waiting for controller signal...");
+            LogInfo("Starting up - waiting for controller signal...")
             os.waitForControllerSignal();
             SetNames();
             os.PageCount = 1;
