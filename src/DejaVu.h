@@ -28,7 +28,11 @@ namespace DejaVu
         {
             ParameterNames[Parameter::InGain] = "In Gain";
             ParameterNames[Parameter::OutGain] = "Out Gain";
-            ParameterNames[Parameter::Mode] = "Mode";
+            ParameterNames[Parameter::LoadSlot] = "Load";
+            ParameterNames[Parameter::SaveSlot] = "Save";
+            ParameterNames[Parameter::SetLength] = "Set Len";
+            ParameterNames[Parameter::SetLengthMode] = "Len Type";
+            ParameterNames[Parameter::Bpm] = "BPM";
         }
 
         inline void SetIOConfig()
@@ -41,9 +45,13 @@ namespace DejaVu
 
         virtual void RegisterParams() override
         {
-            os.Register(Parameter::InGain,  1023, Polygons::ControlMode::Encoded, 0, 4);
-            os.Register(Parameter::OutGain, 1023, Polygons::ControlMode::Encoded, 1, 2);
-            os.Register(Parameter::Mode,    4, Polygons::ControlMode::Encoded, 7, 1);
+            os.Register(Parameter::InGain,         1023, Polygons::ControlMode::Encoded, 0, 4);
+            os.Register(Parameter::OutGain,        1023, Polygons::ControlMode::Encoded, 1, 2);
+            os.Register(Parameter::LoadSlot,       1023, Polygons::ControlMode::Encoded, 2, 2);
+            os.Register(Parameter::SaveSlot,       1023, Polygons::ControlMode::Encoded, 3, 2);
+            os.Register(Parameter::SetLength,      1023, Polygons::ControlMode::Encoded, 4, 1);
+            os.Register(Parameter::SetLengthMode,  1023, Polygons::ControlMode::Encoded, 5, 8);
+            os.Register(Parameter::Bpm,            1023, Polygons::ControlMode::Encoded, 6, 1);
         }
 
         virtual void GetPageName(int page, char* dest) override
@@ -52,6 +60,8 @@ namespace DejaVu
                 strcpy(dest, " !!IN CLIP!!");
             else if (page == 7 && OutputClip)
                 strcpy(dest, " !!OUT CLIP!!");
+            else if (page == 2 || page == 3 || page == 4)
+                strcpy(dest, "<Click>");
             else
                 strcpy(dest, "");
         }
@@ -71,12 +81,20 @@ namespace DejaVu
             {
                 sprintf(dest, "%.1fdB", val);
             }
-            if (paramId == Parameter::Mode)
+            else if (paramId == Parameter::LoadSlot || paramId == Parameter::SaveSlot || paramId == Parameter::Bpm)
             {
-                if (val < 0.5)
-                    strcpy(dest, "Record");
+                sprintf(dest, "%d", (int)val);
+            }
+            else if (paramId == Parameter::SetLengthMode)
+            {
+                if (val == 0)
+                    strcpy(dest, "Seconds");
+                else if (val == 1)
+                    strcpy(dest, "Beats");
+                else if (val == 2)
+                    strcpy(dest, "Bars");
                 else
-                    strcpy(dest, "Playback");
+                    strcpy(dest, "---");
             }
             else
             {
@@ -104,6 +122,29 @@ namespace DejaVu
 
         virtual bool HandleUpdate(Polygons::ParameterUpdate* update) 
         {
+            if (update->Type == MessageType::Digital && update->Index == 2 && update->Value > 0)
+            {
+                os.menu.setMessage("Loading loop...");
+                os.redrawDisplay();
+                Polygons::pushDisplayFull();
+                int slot = controller.GetScaledParameter(Parameter::LoadSlot);
+                controller.recl.LoadRecording(slot);
+                controller.recr.LoadRecording(slot);
+                os.menu.setMessage("Loaded!", 1000);
+                return true;
+            }
+            if (update->Type == MessageType::Digital && update->Index == 3 && update->Value > 0)
+            {
+                os.menu.setMessage("Storing loop...");
+                os.redrawDisplay();
+                Polygons::pushDisplayFull();
+                int slot = controller.GetScaledParameter(Parameter::SaveSlot);
+                controller.recl.SaveRecording(slot);
+                controller.recr.SaveRecording(slot);
+                os.menu.setMessage("Stored!", 1000);
+                return true;
+            }
+
             if (update->Type == MessageType::Digital && update->Index == 8 && update->Value > 0)
             {
                 controller.TriggerRecord();
@@ -130,7 +171,7 @@ namespace DejaVu
         {
             auto canvas = Polygons::getCanvas();
             canvas->fillRect(0, 0, 64, 10, 0); // remove the selected page highlighting
-            canvas->setTextColor(1);
+            /*canvas->setTextColor(1);
 
             canvas->setCursor(140, 19);
             canvas->println("Load");
@@ -140,7 +181,7 @@ namespace DejaVu
             canvas->setCursor(194, 19);
             canvas->println("Save");
             canvas->setCursor(194, 28);
-            canvas->println("<Click>");
+            canvas->println("<Click>");*/
         }
 
         virtual void AudioCallback(int32_t** inputs, int32_t** outputs, int bufferSize) override

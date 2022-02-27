@@ -21,7 +21,6 @@ namespace DejaVu
 		float outGain;
 		uint16_t parameters[Parameter::COUNT];
 		int loopLength;
-		int mode; // playback or record
 
 	public:
 		FlashReaderWriter recl, recr;
@@ -133,9 +132,13 @@ namespace DejaVu
 		{
 			switch (param)
 			{
-				case Parameter::InGain:		return (int)(P(param) * 40) / 2.0; // 0.5db increments
-				case Parameter::OutGain:	return -20 + P(param) * 40;
-				case Parameter::Mode:		return P(param, 4) > 0.5 ? 1 : 0;
+				case Parameter::InGain:			return (int)(P(param) * 40) / 2.0; // 0.5db increments
+				case Parameter::OutGain:		return -20 + P(param) * 40;
+				case Parameter::LoadSlot:		return 1+(int)(P(param) * 29.999);
+				case Parameter::SaveSlot:		return 1+(int)(P(param) * 29.999);
+				case Parameter::SetLength:		return P(param) * 60;
+				case Parameter::SetLengthMode:	return (int)(P(param) * 2.999);
+				case Parameter::Bpm:			return (int)10 + (int)(P(param) * 290);
 			}
 			return parameters[param];
 		}
@@ -149,8 +152,6 @@ namespace DejaVu
 				inGain = DB2gain(scaled);
 			else if (param == Parameter::OutGain)
 				outGain = DB2gain(scaled);
-			else if (param == Parameter::Mode)
-				mode = scaled;
 		}
 
 		void Process(float** inputs, float** outputs, int bufferSize)

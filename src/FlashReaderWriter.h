@@ -49,6 +49,7 @@ class FlashReaderWriter
     int OperationId = 0;
 
     char BufferFileName[64];
+    char SaveFileName[70];
 
     // These buffers store the data from the first block in flash.
     // We do this because when the loop comes around, we need this data very quickly, and we don't have time to load it from flash
@@ -79,6 +80,100 @@ public:
         strcpy(BufferFileName, BaseFilePath);
         strcat(BufferFileName, fileSuffix);
         LogInfof("Buffer file: %s", BufferFileName)
+    }
+
+    inline void SetRecordingFile(int slot)
+    {
+        strcpy(SaveFileName, BufferFileName);
+        sprintf(&SaveFileName[strlen(SaveFileName)], ".%d", slot);
+        LogInfof("Loading/Storing to file: %s", SaveFileName);
+    }
+
+    inline void SaveRecording(int slot)
+    {
+        AudioDisable();
+        SetRecordingFile(slot);
+        SdFile saveFile;
+        if (!saveFile.open(SaveFileName, O_RDWR | O_CREAT | O_TRUNC))
+            LogError("Failed to open save file")
+        else
+            LogInfo("SaveFile created")
+
+        saveFile.write((uint8_t*)&TotalLength, sizeof(int));
+        saveFile.write((uint8_t*)&TotalStorageArea, sizeof(int));
+        LogInfof("Written length and storage info: %d :: %d", TotalLength, TotalStorageArea)
+        float buf[StorageBufferSize];
+
+        int i = 0;
+        int chunkCount = TotalStorageArea / StorageBufferSize;
+        file.seek(0);
+        while(i < chunkCount)
+        {
+            int result = file.read((uint8_t*)buf, StorageBufferSize * 4);
+            if (result <= 0)
+            {
+                LogInfo("Exiting file save operation")
+                break;
+            }
+            saveFile.write((uint8_t*)buf, StorageBufferSize * 4);
+            i++;
+            LogInfof("Saved chunk %d of %d", i, chunkCount)
+        }
+
+        saveFile.close();
+
+        if (i == chunkCount)
+            LogInfof("Successfully saved content in slot %d", slot)
+
+        AudioEnable();
+    }
+
+    inline void LoadRecording(int slot)
+    {
+        AudioDisable();
+        SetRecordingFile(slot);
+        SdFile saveFile;
+        if (!saveFile.open(SaveFileName, O_RDONLY))
+            LogError("Failed to open save file")
+        else
+            LogInfo("SaveFile opened")
+
+        int readTotalLen, readTotalStorageArea;
+        saveFile.read((uint8_t*)&readTotalLen, sizeof(int));
+        saveFile.read((uint8_t*)&readTotalStorageArea, sizeof(int));
+        LogInfof("Read length and storage info: %d :: %d", readTotalLen, readTotalStorageArea)
+        float buf[StorageBufferSize];
+
+        int i = 0;
+        int chunkCount = readTotalStorageArea / StorageBufferSize;
+        file.seek(0);
+        while(i < chunkCount)
+        {
+            int result = saveFile.read((uint8_t*)buf, StorageBufferSize * 4);
+            if (result <= 0)
+            {
+                LogInfo("Exiting file load operation")
+                break;
+            }
+            file.write((uint8_t*)buf, StorageBufferSize * 4);
+            i++;
+            LogInfof("Loaded chunk %d of %d", i, chunkCount)
+        }
+
+        file.seek(0);
+        file.read((uint8_t*)BufLoopStart0, StorageBufferSize * 4);
+        file.read((uint8_t*)BufLoopStart1, StorageBufferSize * 4);
+        file.seek(0);
+
+        saveFile.close();
+
+        if (i == chunkCount)
+            LogInfof("Successfully loaded content from slot %d", slot)
+
+        TotalLength = readTotalLen;
+        TotalStorageArea = readTotalStorageArea;
+        PreparePlay();
+        AudioEnable();
     }
 
     inline void Init()
