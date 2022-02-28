@@ -128,13 +128,19 @@ public:
         AudioEnable();
     }
 
-    inline void LoadRecording(int slot)
+    inline int LoadRecording(int slot)
     {
         AudioDisable();
         SetRecordingFile(slot);
         SdFile saveFile;
+        if (!sd.exists(SaveFileName))
+            return 1;
+
         if (!saveFile.open(SaveFileName, O_RDONLY))
+        {
             LogError("Failed to open save file")
+            return 2;
+        }
         else
             LogInfo("SaveFile opened")
 
@@ -153,7 +159,7 @@ public:
             if (result <= 0)
             {
                 LogInfo("Exiting file load operation")
-                break;
+                return 2;
             }
             file.write((uint8_t*)buf, StorageBufferSize * 4);
             i++;
@@ -172,6 +178,32 @@ public:
 
         TotalLength = readTotalLen;
         TotalStorageArea = readTotalStorageArea;
+        PreparePlay();
+        AudioEnable();
+        return 0;
+    }
+
+    void SetFixedLength(int sampleCount)
+    {
+        LogInfof("Setting fixed length of %d samples", sampleCount)
+        AudioDisable();
+        SetTotalLength(sampleCount);
+        float buf[StorageBufferSize];
+        ZeroBuffer(buf, StorageBufferSize);
+
+        int i = 0;
+        int chunkCount = TotalStorageArea / StorageBufferSize;
+        file.seek(0);
+        while(i < chunkCount)
+        {
+            file.write((uint8_t*)buf, StorageBufferSize * 4);
+            i++;
+            LogInfof("Zeroed chunk %d of %d", i, chunkCount)
+        }
+
+        file.seek(0);
+        ZeroBuffer(BufLoopStart0, StorageBufferSize);
+        ZeroBuffer(BufLoopStart1, StorageBufferSize);
         PreparePlay();
         AudioEnable();
     }
@@ -323,7 +355,6 @@ public:
             if (BufIdxTotal >= TotalLength && TotalLength != 0)
             {
                 BufIdxTotal = 0;
-                LogDebug("Resetting BufIdxTotal")
             }
             BufIdx = 0;
         }

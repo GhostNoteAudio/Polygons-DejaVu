@@ -18,6 +18,7 @@ namespace DejaVu
         float BufferOutL[BUFFER_SIZE];
         float BufferOutR[BUFFER_SIZE];
         int InputClip, OutputClip = 0;
+        bool settingsDirty = false;
         ControllerDejaVu controller;
 
         DejaVuEffect() : controller(SAMPLERATE)
@@ -50,7 +51,7 @@ namespace DejaVu
             os.Register(Parameter::LoadSlot,       1023, Polygons::ControlMode::Encoded, 2, 2);
             os.Register(Parameter::SaveSlot,       1023, Polygons::ControlMode::Encoded, 3, 2);
             os.Register(Parameter::SetLength,      1023, Polygons::ControlMode::Encoded, 4, 1);
-            os.Register(Parameter::SetLengthMode,  1023, Polygons::ControlMode::Encoded, 5, 8);
+            os.Register(Parameter::SetLengthMode,  1023, Polygons::ControlMode::Encoded, 5, 16);
             os.Register(Parameter::Bpm,            1023, Polygons::ControlMode::Encoded, 6, 1);
         }
 
@@ -84,6 +85,15 @@ namespace DejaVu
             else if (paramId == Parameter::LoadSlot || paramId == Parameter::SaveSlot || paramId == Parameter::Bpm)
             {
                 sprintf(dest, "%d", (int)val);
+            }
+            else if (paramId == Parameter::SetLength)
+            {
+                if (controller.GetScaledParameter(Parameter::SetLengthMode) == 0)
+                    sprintf(dest, "%.1f sec", val);
+                else if (controller.GetScaledParameter(Parameter::SetLengthMode) == 1)
+                    sprintf(dest, "%d beats", (int)val);
+                else if (controller.GetScaledParameter(Parameter::SetLengthMode) == 2)
+                    sprintf(dest, "%d bars", (int)val);
             }
             else if (paramId == Parameter::SetLengthMode)
             {
@@ -122,15 +132,24 @@ namespace DejaVu
 
         virtual bool HandleUpdate(Polygons::ParameterUpdate* update) 
         {
+            if (update->Type == MessageType::Digital || update->Type == MessageType::Encoder || update->Type == MessageType::Analog)
+                settingsDirty = true;
+
             if (update->Type == MessageType::Digital && update->Index == 2 && update->Value > 0)
             {
                 os.menu.setMessage("Loading loop...");
                 os.redrawDisplay();
                 Polygons::pushDisplayFull();
                 int slot = controller.GetScaledParameter(Parameter::LoadSlot);
-                controller.recl.LoadRecording(slot);
-                controller.recr.LoadRecording(slot);
-                os.menu.setMessage("Loaded!", 1000);
+                int resl = controller.recl.LoadRecording(slot);
+                int resr = controller.recr.LoadRecording(slot);
+                if (resl == 2 || resr == 2)
+                    os.menu.setMessage("An error occurred!", 1000);
+                else if (resl == 1 || resr == 1)
+                    os.menu.setMessage("Slot is empty!", 1000);
+                else if (resl == 0 && resr == 0)
+                    os.menu.setMessage("Loaded!", 1000);
+
                 return true;
             }
             if (update->Type == MessageType::Digital && update->Index == 3 && update->Value > 0)
@@ -144,7 +163,17 @@ namespace DejaVu
                 os.menu.setMessage("Stored!", 1000);
                 return true;
             }
-
+            if (update->Type == MessageType::Digital && update->Index == 4 && update->Value > 0)
+            {
+                os.menu.setMessage("Working...");
+                os.redrawDisplay();
+                Polygons::pushDisplayFull();
+                int sampleCount = controller.GetSetLenValueSamples();
+                controller.recl.SetFixedLength(sampleCount);
+                controller.recr.SetFixedLength(sampleCount);
+                os.menu.setMessage("Loop set", 1000);
+                return true;
+            }
             if (update->Type == MessageType::Digital && update->Index == 8 && update->Value > 0)
             {
                 controller.TriggerRecord();
@@ -171,17 +200,6 @@ namespace DejaVu
         {
             auto canvas = Polygons::getCanvas();
             canvas->fillRect(0, 0, 64, 10, 0); // remove the selected page highlighting
-            /*canvas->setTextColor(1);
-
-            canvas->setCursor(140, 19);
-            canvas->println("Load");
-            canvas->setCursor(140, 28);
-            canvas->println("<Click>");
-
-            canvas->setCursor(194, 19);
-            canvas->println("Save");
-            canvas->setCursor(194, 28);
-            canvas->println("<Click>");*/
         }
 
         virtual void AudioCallback(int32_t** inputs, int32_t** outputs, int bufferSize) override
@@ -211,12 +229,59 @@ namespace DejaVu
                 OutputClip = OutputClip > 0 ? OutputClip - 1 : 0;
         }
 
+
+
+        void loadSettings()
+        {
+            AudioDisable();
+            uint16_t storedParameters[32];
+
+            if (Storage::FileExists("DejaVu/settings.bin"))
+            {
+                LogInfo("Reading settings from SD Card...");
+                Storage::ReadFile("DejaVu/settings.bin", (uint8_t*)storedParameters, sizeof(uint16_t) * Parameter::COUNT);
+                LogInfo("Done reading settings");
+            }
+            else
+                memcpy(storedParameters, DefaultValues, sizeof(uint16_t) * Parameter::COUNT);
+            
+            for (size_t i = 0; i < Parameter::COUNT; i++)
+            {
+                controller.SetParameter(i, storedParameters[i]);
+                os.Parameters[i].Value = storedParameters[i];
+            }
+            AudioEnable();
+        }
+
+        void storeSettings()
+        {
+            AudioDisable();
+            uint16_t storedParameters[32];
+            if (!settingsDirty)
+                return;
+
+            auto rawParams = controller.GetAllParameters();
+            for (size_t i = 0; i < Parameter::COUNT; i++)
+            {
+                storedParameters[i] = rawParams[i];
+            }
+            bool ok = Storage::WriteFile("DejaVu/settings.bin", (uint8_t*)storedParameters, sizeof(uint16_t) * Parameter::COUNT);
+            if (!ok)
+                LogError("Failed to store settings!")
+            else
+                LogDebug("Stored Settings")
+
+            settingsDirty = false;
+            AudioEnable();
+        }
+
     public:
 
         virtual void Start() override
         {
             LogInfo("initialising controller...")
             controller.Init();
+            loadSettings();
             LogInfo("initialising controller complete!")
 
             LogInfo("Starting up - waiting for controller signal...")

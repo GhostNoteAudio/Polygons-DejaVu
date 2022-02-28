@@ -17,7 +17,6 @@ namespace DejaVu
 	private:
 		
 		int samplerate;
-		float inGain;
 		float outGain;
 		uint16_t parameters[Parameter::COUNT];
 		int loopLength;
@@ -28,7 +27,6 @@ namespace DejaVu
 		ControllerDejaVu(int samplerate) : recl(".L"), recr(".R")
 		{
 			this->samplerate = samplerate;
-			inGain = 1.0;
 			outGain = 1.0;
 			loopLength = 0;
 		}
@@ -128,6 +126,38 @@ namespace DejaVu
 			return parameters;
 		}
 
+		double GetSetLenValue()
+		{
+			double val = P(Parameter::SetLength);
+			if (GetScaledParameter(Parameter::SetLengthMode) == 0) // seconds
+			{
+				if (val < 0.5)
+					return (int)(3 + val * 57 * 10) / 10.0; // seconds, up to 30 sec, 100ms increments
+				else
+					return 30 + (int)((val - 0.5) * 180); // seconds, 30-120 sec, 1 sec increment
+			}
+			else if (GetScaledParameter(Parameter::SetLengthMode) == 1) // beats
+			{
+				return (int)(1 + val * 127);
+			}
+			else
+			{
+				return (int)(1 + val * 15);
+			}
+		}
+
+		int GetSetLenValueSamples()
+		{
+			int bpm = GetScaledParameter(Parameter::Bpm);
+			double val = GetSetLenValue();
+			if (GetScaledParameter(Parameter::SetLengthMode) == 0) // seconds
+				return val * samplerate;
+			else if (GetScaledParameter(Parameter::SetLengthMode) == 1) // beats
+				return (val / bpm) * 60 * samplerate;
+			else // bars, 4x4 assumed
+				return (val / bpm) * 60 * 4 * samplerate;
+		}
+
 		double GetScaledParameter(int param)
 		{
 			switch (param)
@@ -136,21 +166,18 @@ namespace DejaVu
 				case Parameter::OutGain:		return -20 + P(param) * 40;
 				case Parameter::LoadSlot:		return 1+(int)(P(param) * 29.999);
 				case Parameter::SaveSlot:		return 1+(int)(P(param) * 29.999);
-				case Parameter::SetLength:		return P(param) * 60;
+				case Parameter::SetLength:		return GetSetLenValue();
 				case Parameter::SetLengthMode:	return (int)(P(param) * 2.999);
 				case Parameter::Bpm:			return (int)10 + (int)(P(param) * 290);
 			}
 			return parameters[param];
-		}
+		}		
 
 		void SetParameter(int param, uint16_t value)
 		{
 			parameters[param] = value;
 			auto scaled = GetScaledParameter(param);
-
-			if (param == Parameter::InGain)
-				inGain = DB2gain(scaled);
-			else if (param == Parameter::OutGain)
+			if (param == Parameter::OutGain)
 				outGain = DB2gain(scaled);
 		}
 
@@ -169,7 +196,8 @@ namespace DejaVu
 			recr.Process(inputs[1], outputs[1], bufferSize);
 			Mix(outputs[0], inputs[0], 1.0, bufferSize);
 			Mix(outputs[1], inputs[1], 1.0, bufferSize);
-
+			Gain(outputs[0], outGain, bufferSize);
+			Gain(outputs[1], outGain, bufferSize);
 			loopLength += bufferSize;
 		}
 		

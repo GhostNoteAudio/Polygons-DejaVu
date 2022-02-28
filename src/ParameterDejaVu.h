@@ -17,4 +17,15 @@ namespace DejaVu
 
         static const int COUNT = 7;
     };
+
+    uint16_t DefaultValues[7] = 
+    {
+        0,
+        512,
+        0,
+        0,
+        263,
+        768,
+        390,
+    };
 }
